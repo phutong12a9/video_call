@@ -15,6 +15,7 @@
             id: {{Auth::user()->id}},
             name: "{{Auth::user()->name}}"
         };
+
         window.csrfToken = "{{ csrf_token() }}";
     </script>
     @endif

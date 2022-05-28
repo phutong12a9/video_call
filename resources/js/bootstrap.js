@@ -1,5 +1,4 @@
 window._ = require('lodash');
-
 try {
     require('bootstrap');
 } catch (e) {}
@@ -22,11 +21,27 @@ window.axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
 
 import Echo from 'laravel-echo';
 
-window.Pusher = require('pusher-js');
+// window.Pusher = require('pusher-js');
 
-window.Echo = new Echo({
-    broadcaster: 'pusher',
-    key: '343b495272969a826752',
-    cluster: 'ap1',
-    forceTLS: true
-});
+// window.Echo = new Echo({
+//     broadcaster: 'pusher',
+//     key: '343b495272969a826752',
+//     cluster: 'ap1',
+//     forceTLS: true
+// });
+window.io = require('socket.io-client');
+if (typeof io !== 'undefined') {
+    window.Echo = new Echo({
+        broadcaster: 'socket.io',
+        host: window.location.hostname + ':6001',
+        authEndpoint: '/broadcasting/auth',
+        client: window.io,
+        transports: ['websocket'],
+        csrfToken:window.csrfToken,
+        auth: {
+            headers: {
+                Authorization: window.csrfToken,
+            }
+        }
+    })
+}

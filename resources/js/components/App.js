@@ -3,17 +3,14 @@ import ReactDOM from 'react-dom';
 import {openUserStream, openDisplayStream} from "../MediaHandler"
 import Pusher from 'pusher-js';
 import Peer from 'simple-peer';
-import { VideoStreamMerger } from 'video-stream-merger';
-import { has } from 'lodash';
 
 const APP_KEY = '343b495272969a826752';
 
 function App() {
 
-    const [yourID, setYourID] = useState("");
+    const [anwserID, setAnwserID] = useState();
     const [users, setUsers] = useState(window.user);
     const [stream, setStream] = useState();
-    const [slideShow, setSlideShow] = useState();
     const [video, setVideo] = useState(true);
     const [audio, setAudio] = useState(true);
     var [channel, setChannel] = useState();
@@ -23,55 +20,86 @@ function App() {
     const [callerSignal, setCallerSignal] = useState();
     const [hasSlideShow, setHasSlideShow] = useState(false);
     const [callAccepted, setCallAccepted] = useState(false);
+    const [peerCaller,setPeerCaller] = useState();
+    const [peerAnwser,setPeerAnwser] = useState();
+    const [peerSlideCaller,setPeerSlideCaller] = useState();
+    const [peerSlideAnwser,setPeerSlideAnwser] = useState();
+    const [endCalled, setEndCalled] = useState(false);
+    const [declineCalled, setDeclineCalled] = useState(false);
+    const [playRingTone, setPlayRingTone] = useState(false);
+    const [btnSlideShow, setBtnSlideShow] = useState(true);
     const userVideo = useRef();
     const partnerVideo = useRef();
     const slideShowVideo = useRef();
 
-    // var peerCaller = null;
-    // var peerAnwser = null;
-    const [play, setPlay] = useState(false);
-    const [peerCaller, setPeerCaller] = useState();
-    const [peerAnwser, setPeerAnwser] = useState();
-    var ringtone =  new Audio('http://nhacchuongvui.com/wp-content/uploads/Nhac-chuong-cuoc-goi-Facebook-Messenger-www_nhacchuongvui_com.mp3')
-
+    
     useEffect(() => {
         openUserStream().then(stream => {
             setStream(stream);
           if (userVideo.current) {
             userVideo.current.srcObject = stream;
           }
-          setupPeerCaller(stream)
-          setupPeerAnwser(stream)
         })
         setupPusher();
         channel.bind(`client-signal-${users.id}`, (signal) => {
             setReceivingCall(true);
             setCaller(signal.from);
             setCallerSignal(signal.signalData);
-            setYourID(signal.userToCall)
-            if(has(signal.data)){
-                const peer = new Peer({
+
+            //Từ chối cuộc gọi
+            if(signal.decline === true){
+                setReceivingCall(false)
+                setCallAccepted(false)
+                setDeclineCalled(true)
+            }
+            // kết thúc cuọc gọi
+            if(signal.endCall === true){
+                setReceivingCall(false)
+                setCallAccepted(false)
+                setEndCalled(true)
+                const userTracks =  userVideo.current.srcObject.getTracks()
+                userTracks.forEach(track => {
+                        track.stop()
+                });
+            }
+            // có trình chiếu nội dung
+            if(signal.slideshow === true){
+                setBtnSlideShow(false)
+                setReceivingCall(false);
+                let peerSlideAnwser = new Peer({
                     initiator:false,
-                    
+                    trickle: true,
                   });
-                peer.on('stream', stream =>{
-                    setSlideShow(stream)
+                setPeerSlideAnwser(peerSlideAnwser)
+                peerSlideAnwser.on('signal', data => {
+                    channel.trigger(`client-signal-${signal.slideShowFrom}`, { signalData: data });
+                });
+                peerSlideAnwser.on('stream', stream => {
+                    setHasSlideShow(true)
                     if(slideShowVideo.current){
-                        slideShowVideo.current.srcObject = stream
+                        slideShowVideo.current.srcObject = stream;
                     }
-                })
-                // peer.signal(signal.data)
-                // console.log(peer)
-               
-                // slideShowVideo.current.srcObject = signal.slideshow
+                });
+                peerSlideAnwser.signal(signal.dataSlideShow);
+                
+            }
+            // dừng trình chiếu nội dung
+            if(signal.stopSlideShow === true){
+                setBtnSlideShow(true)
+                setReceivingCall(false);
+                let tracks =  slideShowVideo.current.srcObject.getTracks();
+                tracks.forEach(track => track.stop());
+                slideShowVideo.current.srcObject = null;
+                setHasSlideShow(false)
+                console.log(peerSlideAnwser)
+                peerSlideAnwser.destroy()
             }
            
         });
        
       }, []);
 
-   function setupPusher() {
-        // Pusher.logToConsole = true;
+   const setupPusher = () => {
         pusher = new Pusher(APP_KEY, {
             authEndpoint: 'http://127.0.0.1:8000/pusher/auth',
             cluster: 'ap1',
@@ -87,29 +115,17 @@ function App() {
         setChannel(channel)
         
     }
-    function setupPeerCaller(stream){
-       const peer = new Peer({
-            initiator:true,
-            trickle: false,
-            streams: [stream],
-          });
-          setPeerCaller(peer)
-        return peer
-    }
-    function setupPeerAnwser(stream){
-       const  peer = new Peer({
-            initiator: false,
-            trickle: true,
-            streams: [stream],
-           
-          });
-           setPeerAnwser(peer)
-         return peer
-     }
-
-   function callPeer(userId) {
-       setupPeerCaller(stream)
-      peerCaller.on('signal', (data) => {
+   const callPeer = (userId) => {
+    setAnwserID(userId)
+    setDeclineCalled(false)
+    setEndCalled(false)
+    let peerCaller =  new Peer({
+        initiator:true,
+        trickle: false,
+        stream: stream
+      });
+    setPeerCaller(peerCaller)
+     peerCaller.on('signal', (data) => {
             channel.trigger(`client-signal-${userId}`, {
                  userToCall: userId, 
                  signalData: data, 
@@ -122,26 +138,54 @@ function App() {
               }
         });
         channel.bind(`client-signal-${users.id}`, (signal) => {
-            setCallAccepted(true);
-            peerCaller.signal(signal.signal);
+             // nhận tín hiêu từ chối cuọc gọi và kết thúc cuộc gọi
+            if(signal.decline || signal.endCall){
+                peerCaller.destroy()
+                const userTracks =  userVideo.current.srcObject.getTracks()
+                userTracks.forEach(track => {
+                        track.stop()
+                });
+                userVideo.current.srcObject = undefined
+            }
+            else{
+                setCallAccepted(true);
+                setReceivingCall(false);
+                // stopRingtone()
+                peerCaller.signal(signal.signal);
+            }
+            
         });
+        userVideo.current.play()
         peerCaller.on('close', () =>{
             peerCaller.destroy();
         })
-        userVideo.current.play()
        
     
     }
-    function acceptCall() {
-        
+    const acceptCall = () => {
+        stopRingtone()
+        setReceivingCall(false)
         setCallAccepted(true);
-        setupPeerAnwser(stream)
+        setDeclineCalled(false)
+        setAnwserID(caller)
+        setEndCalled(false)
+        let peerAnwser = new Peer({
+            initiator:false,
+            trickle: true,
+            stream: stream
+          });
+        setPeerAnwser(peerAnwser)
         peerAnwser.on("signal", (data) => {
             channel.trigger(`client-signal-${caller}`, { signal: data, to: caller });
         })
         peerAnwser.on("stream", stream => {
           partnerVideo.current.srcObject = stream;
         });
+        channel.bind(`client-signal-${users.id}`, signal => {
+           if(signal.endCall === true){
+            peerAnwser.destroy()
+           }
+        })
         peerAnwser.signal(callerSignal);
         peerAnwser.on('close', () =>{
             peerAnwser.destroy();
@@ -149,7 +193,16 @@ function App() {
         userVideo.current.play()
       }
 
-    function endCall(){
+    const declineCall = () =>{
+        stopRingtone()
+        setReceivingCall(false)
+        setCallAccepted(false)
+        channel.trigger(`client-signal-${caller}`,{decline:true})
+    }
+    const endCall = () => {
+        setReceivingCall(false)
+        setCallAccepted(false)
+        setEndCalled(true)
        if(!video){
         userVideo.current.srcObject.getVideoTracks()[0].enabled = video
        }
@@ -164,69 +217,85 @@ function App() {
        partnerTracks.forEach(track => {
             track.stop()
        });
-       peerCaller.destroy();
-      
-        channel.disconnect();
+       if(caller === anwserID){
+           peerAnwser.destroy()
+       }
+       else{
+            peerCaller.destroy()
+            
+       }
+       channel.trigger(`client-signal-${anwserID}`,{endCall: true})
+       channel.disconnect()
 
     }
-
-    const toggleCamera = async () =>{
-        await setVideo(!video)
-        userVideo.current.srcObject.getVideoTracks()[0].enabled = video
+    const toggleCamera = () =>{
+        if(video){
+            setVideo(false)
+            userVideo.current.srcObject.getVideoTracks()[0].enabled = false
+        }
+        else{
+            setVideo(true)
+            userVideo.current.srcObject.getVideoTracks()[0].enabled = true
+        }
+       
+    }
+    const toggleAudio =  () => {
+        if(audio){
+            setAudio(false)
+            userVideo.current.srcObject.getAudioTracks()[0].enabled = false
+        }
+        else {
+            setAudio(true)
+            userVideo.current.srcObject.getAudioTracks()[0].enabled = true
+        }
         
-    }
-    const toggleAudio = async () => {
-        await setAudio(!audio)
-        userVideo.current.srcObject.getAudioTracks()[0].enabled = audio
     }
 
     const startSlideShow= async() => {
-        var merger = new VideoStreamMerger();
         await openDisplayStream().then(async (MediaStream) => {
             setHasSlideShow(true)
             slideShowVideo.current.srcObject = MediaStream
-
-            merger.addStream(stream)
-            merger.addStream(MediaStream)
-            merger.start()
-        })
-        const peer = new Peer({
-            initiator:true,
-            trickle: false,
-            stream: merger.result,
-            offerConstraints: {
-                offerToReceiveAudio: true,
-                offerToReceiveVideo: true
-              }
-          });
-        peer.on('signal', data => {
-            channel.trigger(`client-signal-${caller}`, {data: data})
+            let peerSlideCaller =  new Peer({
+                initiator:true,
+                stream: MediaStream,
+              });
+            setPeerSlideCaller(peerSlideCaller)
+            peerSlideCaller.on('signal', (data) => {
+                channel.trigger(`client-signal-${anwserID}`, {
+                     slideshow: true,
+                     dataSlideShow: data,
+                     slideShowFrom: users.id
+                });
+            });
+            channel.bind(`client-signal-${users.id}`, (signal) => {
+               if(signal.signalData){
+                setReceivingCall(false)
+                peerSlideCaller.signal(signal.signalData)
+               }
+            })
+            
         })
     }
-    function stopSlideShow(){
+    const stopSlideShow = () => {
         let tracks =  slideShowVideo.current.srcObject.getTracks();
         tracks.forEach(track => track.stop());
         slideShowVideo.current.srcObject = null;
         setHasSlideShow(false)
+        channel.trigger(`client-signal-${anwserID}`,{stopSlideShow: true})
+        peerSlideCaller.destroy()
+        setReceivingCall(false)
     }
-
-    const playRingtone = async () =>{
-         if(!callAccepted && play === false){
-            await setPlay(true)
-            ringtone.loop = true 
+    let ringtone =  new Audio('http://nhacchuongvui.com/wp-content/uploads/Nhac-chuong-cuoc-goi-Facebook-Messenger-www_nhacchuongvui_com.mp3')
+    const playRingtone = () =>{
+            ringtone.loop = true
             ringtone.play()
-            if(play===true){
-                ringtone.pause() 
-                ringtone.currentTime = 0
-            }
-        }
-        else {
-            console.log('stop')
-            // ringtone.pause() 
-            ringtone.currentTime = 0
-        }
-        
     }
+    const stopRingtone = () =>{
+            ringtone.pause()
+            ringtone.currentTime = 0
+       
+    }
+   
     let UserVideo;
     if (stream) {
     UserVideo = (
@@ -236,7 +305,17 @@ function App() {
     let SlideShowVideo
 
     let PartnerVideo;
+    let isAccept;
     if (callAccepted) {
+        stopRingtone()
+        isAccept = (
+            <div>
+            <button onClick={endCall}>endCall</button>
+            <button onClick={toggleCamera}> {video === true ? "hide camera" : "show camera"}</button>
+            <button onClick={toggleAudio}> {audio === true ? "mute audio" : "unmute audio"}</button>
+            {btnSlideShow === true ? hasSlideShow === true ? <button onClick={stopSlideShow}> stopSlideShow</button> :  <button onClick={startSlideShow}> startSlideShow</button> :""}
+            </div>
+        );
         if(hasSlideShow){
             SlideShowVideo = (
                 <video playsInline ref={slideShowVideo} autoPlay className="slide-show"/>
@@ -254,19 +333,16 @@ function App() {
 
     let incomingCall;
     if (receivingCall) {  
-        
         // playRingtone()
-    incomingCall = (
-        <div>
-        <h1>{caller} is calling you</h1>
-        <button onClick={acceptCall}>Accept</button>
-        <button onClick={endCall}>endCall</button>
-        <button onClick={toggleCamera}> {video === true ? "hide camera" : "show camera"}</button>
-        <button onClick={toggleAudio}> {audio === true ? "mute audio" : "unmute audio"}</button>
-        {hasSlideShow === true ? <button onClick={stopSlideShow}> stopSlideShow</button> :  <button onClick={startSlideShow}> startSlideShow</button> }
-        </div>
-    )
+        incomingCall = (
+            <div>
+            <h1>{caller} is calling you</h1>
+            <button onClick={acceptCall}>Accept</button>
+            <button onClick={declineCall}>Decline</button>
+            </div>
+        )
     }
+   
     return (
         <div className="App">
             <div className="video-container">
@@ -279,7 +355,9 @@ function App() {
                 return users.id !== userId ?  <button  key={userId} onClick={() => callPeer(userId)}>Call {userId}</button>: null;
             })}
             </div>
-            <div>{incomingCall}</div>
+            <div>{incomingCall}{isAccept}</div>
+            <div>{endCalled === true ? "Cuộc gọi đã kết thúc" : ""}</div>
+            <div>{declineCalled === true ? "Cuộc gọi bị đối phương từ chối :(" : ""}</div>
         </div>
     );
 }

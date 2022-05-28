@@ -21,3 +21,6 @@ Broadcast::channel('user.{userId}', function ($user, $userId) {
     return array('name' => $user->name);
   }
 });
+Broadcast::channel('video-channel', function($user) {
+  return ['id' => $user->id, 'name' => $user->name];
+});

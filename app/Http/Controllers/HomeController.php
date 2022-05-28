@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\StartVideoChat;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use \Pusher\Pusher;
 
 class HomeController extends Controller
@@ -39,5 +41,53 @@ class HomeController extends Controller
         $presence_data = ['name' => auth()->user()->name];
         $key = $pusher->presenceAuth($channelName, $socketId, auth()->id(), $presence_data);
         return response($key);
+    }
+
+    public function callUser(Request $request)
+    {
+        $data['userToCall'] = $request->user_to_call;
+        $data['signalData'] = $request->signal_data;
+        $data['from'] = Auth::id();
+        $data['type'] = 'incomingCall';
+
+        broadcast(new StartVideoChat($data))->toOthers();
+        
+    }
+    public function acceptCall(Request $request)
+    {
+        $data['signal'] = $request->signal;
+        $data['to'] = $request->to;
+        $data['type'] = 'callAccepted';
+        broadcast(new StartVideoChat($data))->toOthers();
+    }
+
+    public function endCall(Request $request)
+    {
+        $data['to'] = $request->to;
+        $data['type'] = 'endCall';
+        broadcast(new StartVideoChat($data))->toOthers();
+    }
+
+    public function declineCall(Request $request)
+    {
+        $data['to'] = $request->to;
+        $data['type'] = 'declineCall';
+        broadcast(new StartVideoChat($data))->toOthers();
+    }
+
+    public function startSlideShow(Request $request)
+    {
+        $data['to'] = $request->to;
+        $data['dataSlideShow']   = $request->dataSlideShow;
+        $data['from'] = $request->user()->id;
+        $data['type'] = 'startSlideShow';
+        broadcast(new StartVideoChat($data))->toOthers();
+    }
+    public function stopSlideShow(Request $request)
+    {
+        $data['to'] = $request->to;
+        $data['from'] = $request->user()->id;
+        $data['type'] = 'stopSlideShow';
+        broadcast(new StartVideoChat($data))->toOthers();
     }
 }
